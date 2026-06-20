@@ -32,6 +32,7 @@ async function run() {
     // Send a ping to confirm a successful connection
       const database = client.db("b13_assignment_10_db");
     const artsCollection = database.collection("artstor");
+    const companyCollection = database.collection("companystor");
     
 
     app.get('/api/arts', async (req, res)=>{
@@ -44,6 +45,32 @@ async function run() {
         const art = req.body;
         console.log(art);
         const result = await artsCollection.insertOne(art)
+        res.send(result)
+        
+    })
+
+
+    //conpany data gual post api
+
+    app.get('/api/my/companies', async (req, res) => {
+  
+    const query = { userId: { $exists: true, $ne: null } }; 
+
+    if (req.query.userId) {
+        query.userId = req.query.userId;
+    }
+
+    const result = await companyCollection.find(query).toArray();
+    res.send(result);
+});
+    
+
+    //conpany data gual post api
+
+    app.post('/api/companies' ,async(req, res)=>{
+        const data = req.body;
+        console.log(data);
+        const result = await companyCollection.insertOne(data)
         res.send(result)
         
     })

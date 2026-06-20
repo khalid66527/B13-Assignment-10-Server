@@ -6,7 +6,7 @@ require('dotenv').config()
 
 app.use(cors())
 app.use(express.json())
-const { MongoClient, ServerApiVersion } = require('mongodb');
+const { MongoClient, ServerApiVersion, ObjectId } = require('mongodb');
 
 
 app.get('/', (req, res) => {
@@ -40,6 +40,50 @@ async function run() {
       res.json(result)
     })
 
+    app.get('/api/arts/:id', async (req, res) => {
+      try {
+        const id = req.params.id;
+        const query = { _id: new ObjectId(id) };
+        const result = await artsCollection.findOne(query);
+        if (!result) {
+          return res.status(404).send({ error: "Artwork not found" });
+        }
+        res.json(result);
+      } catch (error) {
+        console.error("Error getting art by id:", error);
+        res.status(500).send({ error: "Failed to fetch artwork" });
+      }
+    });
+
+    app.put('/api/arts/:id', async (req, res) => {
+      try {
+        const id = req.params.id;
+        const filter = { _id: new ObjectId(id) };
+        const updatedArt = req.body;
+        const { _id, ...updateData } = updatedArt;
+        const updateDoc = {
+          $set: updateData
+        };
+        const result = await artsCollection.updateOne(filter, updateDoc);
+        res.json(result);
+      } catch (error) {
+        console.error("Error updating art:", error);
+        res.status(500).send({ error: "Failed to update artwork" });
+      }
+    });
+
+    app.delete('/api/arts/:id', async (req, res) => {
+      try {
+        const id = req.params.id;
+        const query = { _id: new ObjectId(id) };
+        const result = await artsCollection.deleteOne(query);
+        res.json(result);
+      } catch (error) {
+        console.error("Error deleting art:", error);
+        res.status(500).send({ error: "Failed to delete artwork" });
+      }
+    });
+
 
     app.post('/api/arts' ,async(req, res)=>{
         const art = req.body;
@@ -64,6 +108,8 @@ async function run() {
     res.send(result);
 });
     
+
+
 
     //conpany data gual post api
     app.post('/api/companies' ,async(req, res)=>{

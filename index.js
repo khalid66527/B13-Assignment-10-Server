@@ -54,7 +54,7 @@ async function run() {
 
     app.get('/api/my/companies', async (req, res) => {
   
-    const query = { userId: { $exists: true, $ne: null } }; 
+    const query = {  }; 
 
     if (req.query.userId) {
         query.userId = req.query.userId;
@@ -66,13 +66,41 @@ async function run() {
     
 
     //conpany data gual post api
-
     app.post('/api/companies' ,async(req, res)=>{
         const data = req.body;
-        console.log(data);
-        const result = await companyCollection.insertOne(data)
-        res.send(result)
+        console.log("Incoming company data:", data);
         
+        if (!data.userId) {
+            return res.status(400).send({ error: "userId is required" });
+        }
+
+        const filter = { userId: data.userId };
+        const updateDoc = {
+            $set: {
+                companyName: data.companyName,
+                category: data.category,
+                website: data.website,
+                location: data.location,
+                employeeCountRange: data.employeeCountRange,
+                companyLogo: data.companyLogo,
+                description: data.description,
+            }
+        };
+        
+        try {
+            const result = await companyCollection.updateOne(filter, updateDoc, { upsert: true });
+            
+            const responseData = {
+                acknowledged: result.acknowledged,
+                insertedId: result.upsertedId || (result.matchedCount > 0 ? "updated" : null),
+                isUpdate: result.matchedCount > 0
+            };
+            
+            res.send(responseData);
+        } catch (error) {
+            console.error("Error upserting company data:", error);
+            res.status(500).send({ error: "Failed to save company profile" });
+        }
     })
 
 

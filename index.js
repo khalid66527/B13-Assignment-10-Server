@@ -40,6 +40,10 @@ async function run() {
       res.json(result)
     })
 
+
+
+
+
     app.get('/api/arts/:id', async (req, res) => {
       try {
         const id = req.params.id;
@@ -54,6 +58,10 @@ async function run() {
         res.status(500).send({ error: "Failed to fetch artwork" });
       }
     });
+
+
+
+
 
     app.put('/api/arts/:id', async (req, res) => {
       try {
@@ -72,6 +80,10 @@ async function run() {
       }
     });
 
+
+
+
+
     app.delete('/api/arts/:id', async (req, res) => {
       try {
         const id = req.params.id;
@@ -85,6 +97,10 @@ async function run() {
     });
 
 
+
+
+
+
     app.post('/api/arts' ,async(req, res)=>{
         const art = req.body;
         console.log(art);
@@ -92,6 +108,9 @@ async function run() {
         res.send(result)
         
     })
+
+
+
 
 
     //conpany data gual post api
@@ -107,6 +126,8 @@ async function run() {
     const result = await companyCollection.find(query).toArray();
     res.send(result);
 });
+
+
     
 
 

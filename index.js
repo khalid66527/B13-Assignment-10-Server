@@ -32,6 +32,7 @@ async function run() {
     // Send a ping to confirm a successful connection
       const database = client.db("b13_assignment_10_db");
     const artsCollection = database.collection("artstor");
+    const usersCollection = database.collection("user");
     const companyCollection = database.collection("companystor");
     const artbuynowstorCollection = database.collection("buynowerstor");
     const plansCollection = database.collection("plans");
@@ -84,6 +85,27 @@ async function run() {
       const plan = await plansCollection.findOne(query)
       res.send(plan)
     })
+
+
+  app.post('/api/subscriptions', async (req,res)=>{
+    const data  = req.body;
+    const subInfo ={
+      ...data, 
+      createdAt: new Date()
+    }
+    const result = await subscriptionCollection.insertOne(subInfo)
+
+    const filter = {email : data.email}
+    const updateDocument ={
+      $set:{
+        plan:data.planId
+      }
+    }
+    const updateResult = await usersCollection.updateOne(filter, updateDocument)
+    res.send(updateResult)
+  
+
+  })
 
 
     app.post('/api/artbuynowstore', async (req,res)=>{

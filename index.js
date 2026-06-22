@@ -34,6 +34,8 @@ async function run() {
     const artsCollection = database.collection("artstor");
     const companyCollection = database.collection("companystor");
     const artbuynowstorCollection = database.collection("buynowerstor");
+    const plansCollection = database.collection("plans");
+    const subscriptionCollection = database.collection("subscriptions");
     
 
     app.get('/api/arts', async (req, res)=>{
@@ -71,6 +73,16 @@ async function run() {
       const cursor = artbuynowstorCollection.find(query)
       const result = await cursor.toArray()
       res.send(result)
+    })
+
+
+    app.get('/api/plans',async (req, res)=>{
+      const query = {}
+      if(req.query.plan_id){
+        query.id = req.query.plan_id
+      }
+      const plan = await plansCollection.findOne(query)
+      res.send(plan)
     })
 
 

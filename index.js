@@ -60,6 +60,19 @@ async function run() {
       }
     });
 
+    app.get('/api/artbuynowstore', async (req,res)=>{
+      const query = {} 
+      if(req.query.buynowerId){
+        query.buynowerId = req.query.buynowerId;
+      }
+      if(req.query.id){
+        query.id = req.query.id
+      }
+      const cursor = artbuynowstorCollection.find(query)
+      const result = await cursor.toArray()
+      res.send(result)
+    })
+
 
     app.post('/api/artbuynowstore', async (req,res)=>{
       const artbuynowstor = req.body;

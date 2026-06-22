@@ -33,6 +33,7 @@ async function run() {
       const database = client.db("b13_assignment_10_db");
     const artsCollection = database.collection("artstor");
     const companyCollection = database.collection("companystor");
+    const artbuynowstorCollection = database.collection("buynowerstor");
     
 
     app.get('/api/arts', async (req, res)=>{
@@ -58,6 +59,17 @@ async function run() {
         res.status(500).send({ error: "Failed to fetch artwork" });
       }
     });
+
+
+    app.post('/api/artbuynowstore', async (req,res)=>{
+      const artbuynowstor = req.body;
+      const newArtbuynowstor ={
+        ...artbuynowstor,
+        createdAt: new Date()
+      }
+      const result = await artbuynowstorCollection.insertOne(newArtbuynowstor);
+      res.send(result)
+    })
 
 
 

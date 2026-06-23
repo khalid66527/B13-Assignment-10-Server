@@ -46,6 +46,18 @@ async function run() {
 
 
 
+app.get("/api/users", async (req, res) => {
+  try {
+    const users = await usersCollection
+      .find({})
+      .sort({ _id: -1 })
+      .toArray();
+
+    res.send(users);
+  } catch (error) {
+    res.status(500).send({ message: "Failed to fetch users" });
+  }
+});
 
 
     app.get('/api/arts/:id', async (req, res) => {
@@ -187,6 +199,30 @@ async function run() {
 });
 
 
+
+
+
+app.post("/api/users/role/:id", async (req, res) => {
+  const { id } = req.params;
+  const { role } = req.body;
+
+  const validRoles = ["admin", "artist", "buyer"];
+
+  if (!validRoles.includes(role)) { 
+    return res.status(400).send({ message: "Invalid role" });
+  }
+
+  const result = await usersCollection.updateOne(
+    { _id: new ObjectId(id) },
+    { $set: { role } }
+  );
+
+  res.send({
+    success: true,
+    message: "Role updated successfully",
+    result,
+  });
+});
     
 
 

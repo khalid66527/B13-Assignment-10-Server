@@ -120,6 +120,16 @@ app.get("/api/users", async (req, res) => {
 
   })
 
+  app.get('/api/subscriptions', async (req, res) => {
+    try {
+      const result = await subscriptionCollection.find().toArray();
+      res.json(result);
+    } catch (error) {
+      console.error("Error fetching subscriptions:", error);
+      res.status(500).send({ error: "Failed to fetch subscriptions" });
+    }
+  });
+
 
     app.post('/api/artbuynowstore', async (req,res)=>{
       const artbuynowstor = req.body;
@@ -143,6 +153,16 @@ app.get("/api/users", async (req, res) => {
       } catch (error) {
         console.error("Error creating purchase:", error);
         res.status(500).send({ error: "Failed to store purchase" });
+      }
+    });
+
+    app.get('/api/purchases', async (req, res) => {
+      try {
+        const result = await artpurchasesCollection.find().toArray();
+        res.json(result);
+      } catch (error) {
+        console.error("Error fetching purchases:", error);
+        res.status(500).send({ error: "Failed to fetch purchases" });
       }
     });
 

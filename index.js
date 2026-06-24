@@ -37,6 +37,7 @@ async function run() {
     const artbuynowstorCollection = database.collection("buynowerstor");
     const plansCollection = database.collection("plans");
     const subscriptionCollection = database.collection("subscriptions");
+    const artpurchasesCollection = database.collection("purchasestor");
     
 
     app.get('/api/arts', async (req, res)=>{
@@ -129,6 +130,21 @@ app.get("/api/users", async (req, res) => {
       const result = await artbuynowstorCollection.insertOne(newArtbuynowstor);
       res.send(result)
     })
+
+    app.post('/api/purchases', async (req, res) => {
+      try {
+        const purchaseData = req.body;
+        const newPurchase = {
+          ...purchaseData,
+          purchaseDate: new Date()
+        };
+        const result = await artpurchasesCollection.insertOne(newPurchase);
+        res.status(201).send(result);
+      } catch (error) {
+        console.error("Error creating purchase:", error);
+        res.status(500).send({ error: "Failed to store purchase" });
+      }
+    });
 
 
 

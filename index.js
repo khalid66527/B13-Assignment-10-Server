@@ -10,6 +10,23 @@ const logger = (req, res, next) => {
   console.log(`${req.method} ${req.url}`);
   next();
 };
+
+const jwt = require('jsonwebtoken');
+
+const verifyJWT = (req, res, next) => {
+  const authorization = req.headers.authorization;
+  if (!authorization) {
+    return res.status(401).send({ error: true, message: 'Unauthorized access: token missing' });
+  }
+  const token = authorization.split(' ')[1];
+  jwt.verify(token, process.env.JWT_SECRET || 'supersecret_b13_assignment_10', (err, decoded) => {
+    if (err) {
+      return res.status(403).send({ error: true, message: 'Forbidden access: invalid token' });
+    }
+    req.decoded = decoded;
+    next();
+  });
+};
 const { MongoClient, ServerApiVersion, ObjectId } = require('mongodb');
 
 
@@ -74,7 +91,7 @@ async function run() {
 
 
 
-    app.post('/api/arts', async (req, res) => {
+    app.post('/api/arts', verifyJWT, async (req, res) => {
       const art = req.body;
       console.log(art);
       const result = await artsCollection.insertOne(art)
@@ -171,7 +188,7 @@ async function run() {
 
 
 
-    app.post('/api/subscriptions', async (req, res) => {
+    app.post('/api/subscriptions', verifyJWT, async (req, res) => {
       const data = req.body;
       const subInfo = {
         ...data,
@@ -222,7 +239,7 @@ async function run() {
 
 
 
-    app.post('/api/purchases', async (req, res) => {
+    app.post('/api/purchases', verifyJWT, async (req, res) => {
       try {
         const purchaseData = req.body;
         const newPurchase = {
@@ -240,7 +257,7 @@ async function run() {
 
 
 
-    app.post("/api/artworks/:id/comments", async (req, res) => {
+    app.post("/api/artworks/:id/comments", verifyJWT, async (req, res) => {
       try {
         const artworkId = req.params.id;
         const { userId, userName, userImage, comment } = req.body;
@@ -284,7 +301,7 @@ async function run() {
 
 
 
-    app.put("/api/comments/:commentId", async (req, res) => {
+    app.put("/api/comments/:commentId", verifyJWT, async (req, res) => {
       try {
         const commentId = req.params.commentId;
         const { userId, comment } = req.body;
@@ -313,7 +330,7 @@ async function run() {
 
 
 
-    app.delete("/api/comments/:commentId", async (req, res) => {
+    app.delete("/api/comments/:commentId", verifyJWT, async (req, res) => {
       try {
         const commentId = req.params.commentId;
         const userId = req.query.userId || req.body.userId;
@@ -354,7 +371,7 @@ async function run() {
 
 
 
-    app.put('/api/arts/:id', logger, async (req, res) => {
+    app.put('/api/arts/:id', logger, verifyJWT, async (req, res) => {
       try {
         const id = req.params.id;
         let filter = { _id: id };
@@ -378,7 +395,7 @@ async function run() {
 
 
 
-    app.delete('/api/arts/:id', async (req, res) => {
+    app.delete('/api/arts/:id', verifyJWT, async (req, res) => {
       try {
         const id = req.params.id;
         let query = { _id: id };
@@ -492,7 +509,7 @@ async function run() {
 
 
 
-    app.post("/api/users/role/:id", async (req, res) => {
+    app.post("/api/users/role/:id", verifyJWT, async (req, res) => {
       const { id } = req.params;
       const { role } = req.body;
 
@@ -523,7 +540,7 @@ async function run() {
 
 
     //conpany data gual post api
-    app.post('/api/companies', async (req, res) => {
+    app.post('/api/companies', verifyJWT, async (req, res) => {
       const data = req.body;
       console.log("Incoming company data:", data);
 

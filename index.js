@@ -64,6 +64,7 @@ async function run() {
     const artpurchasesCollection = database.collection("purchasestor");
     const usercommentCollection = database.collection("usercomment");
     const useraddressCollection = database.collection("useraddress");
+    const cartCollection = database.collection("usercart");
 
 
     app.get('/api/arts', async (req, res) => {
@@ -775,6 +776,186 @@ async function run() {
       } catch (error) {
         console.error("Error deleting user address:", error);
         res.status(500).send({ error: "Failed to delete address" });
+      }
+    });
+
+    // ==========================================
+    // USER SHOPPING CART APIs (CRUD)
+    // ==========================================
+
+    // 1. GET user's cart items
+    app.get('/api/cart', async (req, res) => {
+      try {
+        const email = req.query.email ? String(req.query.email).trim() : null;
+        const userId = req.query.userId ? String(req.query.userId).trim() : null;
+
+        const orConditions = [];
+        if (email) {
+          const escaped = escapeRegex(email);
+          orConditions.push({ userEmail: { $regex: new RegExp(`^${escaped}$`, 'i') } });
+          orConditions.push({ email: { $regex: new RegExp(`^${escaped}$`, 'i') } });
+        }
+        if (userId) {
+          orConditions.push({ userId: userId });
+        }
+
+        const filter = orConditions.length > 0 ? { $or: orConditions } : {};
+        if (Object.keys(filter).length === 0) {
+          return res.json([]);
+        }
+
+        const items = await cartCollection.find(filter).sort({ createdAt: -1 }).toArray();
+        res.json(items);
+      } catch (error) {
+        console.error("Error fetching cart items:", error);
+        res.status(500).json({ error: "Failed to fetch cart items" });
+      }
+    });
+
+    // 2. POST add item to cart
+    app.post('/api/cart', async (req, res) => {
+      try {
+        const data = req.body || {};
+        const artworkId = data.artworkId || data.artId || data.id || data._id;
+        const userEmail = (data.userEmail || data.email || "").trim();
+        const userId = (data.userId || "").trim();
+
+        if (!artworkId || (!userEmail && !userId)) {
+          return res.status(400).json({ error: "Artwork ID and user info are required" });
+        }
+
+        const orConditions = [];
+        if (userEmail) {
+          const escaped = escapeRegex(userEmail);
+          orConditions.push({ userEmail: { $regex: new RegExp(`^${escaped}$`, 'i') } });
+          orConditions.push({ email: { $regex: new RegExp(`^${escaped}$`, 'i') } });
+        }
+        if (userId) {
+          orConditions.push({ userId: userId });
+        }
+
+        const userFilter = { $or: orConditions };
+        const existingItem = await cartCollection.findOne({
+          ...userFilter,
+          $or: [
+            { artworkId: String(artworkId) },
+            { artId: String(artworkId) },
+            { id: String(artworkId) }
+          ]
+        });
+
+        if (existingItem) {
+          const newQty = (Number(existingItem.quantity) || 1) + (Number(data.quantity) || 1);
+          await cartCollection.updateOne(
+            { _id: existingItem._id },
+            { $set: { quantity: newQty, updatedAt: new Date() } }
+          );
+          return res.json({
+            success: true,
+            message: "Item quantity updated in cart",
+            cartItem: { ...existingItem, quantity: newQty }
+          });
+        }
+
+        const newCartItem = {
+          artworkId: String(artworkId),
+          artId: String(artworkId),
+          title: data.title || "Untitled Artwork",
+          price: Number(data.price) || 0,
+          image: data.image || "",
+          category: data.category || "Fine Art",
+          dimensions: data.dimensions || "",
+          companyName: data.companyName || "",
+          companyId: data.companyId || "",
+          artistName: data.artistName || "Unknown Artist",
+          artistEmail: data.artistEmail || "",
+          quantity: Number(data.quantity) || 1,
+          userEmail: userEmail,
+          email: userEmail,
+          userId: userId,
+          createdAt: new Date(),
+          updatedAt: new Date()
+        };
+
+        const result = await cartCollection.insertOne(newCartItem);
+        res.status(201).json({
+          success: true,
+          message: "Item added to cart successfully",
+          insertedId: result.insertedId,
+          cartItem: { ...newCartItem, _id: result.insertedId }
+        });
+      } catch (error) {
+        console.error("Error adding item to cart:", error);
+        res.status(500).json({ error: "Failed to add item to cart" });
+      }
+    });
+
+    // 3. PUT update item quantity
+    app.put('/api/cart/:id', async (req, res) => {
+      try {
+        const id = req.params.id;
+        const { quantity } = req.body || {};
+        const parsedQty = Math.max(1, Number(quantity) || 1);
+
+        let filter = { _id: id };
+        if (ObjectId.isValid(id)) {
+          filter = { $or: [{ _id: id }, { _id: new ObjectId(id) }] };
+        }
+
+        const result = await cartCollection.updateOne(filter, {
+          $set: { quantity: parsedQty, updatedAt: new Date() }
+        });
+
+        res.json({ success: true, modifiedCount: result.modifiedCount });
+      } catch (error) {
+        console.error("Error updating cart quantity:", error);
+        res.status(500).json({ error: "Failed to update cart item" });
+      }
+    });
+
+    // 4. DELETE remove single item from cart
+    app.delete('/api/cart/:id', async (req, res) => {
+      try {
+        const id = req.params.id;
+        let query = { _id: id };
+        if (ObjectId.isValid(id)) {
+          query = { $or: [{ _id: id }, { _id: new ObjectId(id) }] };
+        }
+
+        const result = await cartCollection.deleteOne(query);
+        res.json({ success: true, deletedCount: result.deletedCount });
+      } catch (error) {
+        console.error("Error removing cart item:", error);
+        res.status(500).json({ error: "Failed to delete item from cart" });
+      }
+    });
+
+    // 5. DELETE clear entire cart for user
+    app.delete('/api/cart/clear/all', async (req, res) => {
+      try {
+        const email = req.query.email ? String(req.query.email).trim() : null;
+        const userId = req.query.userId ? String(req.query.userId).trim() : null;
+
+        const orConditions = [];
+        if (email) {
+          const escaped = escapeRegex(email);
+          orConditions.push({ userEmail: { $regex: new RegExp(`^${escaped}$`, 'i') } });
+          orConditions.push({ email: { $regex: new RegExp(`^${escaped}$`, 'i') } });
+        }
+        if (userId) {
+          orConditions.push({ userId: userId });
+        }
+
+        const filter = orConditions.length > 0 ? { $or: orConditions } : {};
+        if (Object.keys(filter).length === 0) {
+          return res.status(400).json({ error: "User email or ID required to clear cart" });
+        }
+
+        const result = await cartCollection.deleteMany(filter);
+        res.json({ success: true, deletedCount: result.deletedCount });
+      } catch (error) {
+        console.error("Error clearing user cart:", error);
+        res.status(500).json({ error: "Failed to clear cart" });
       }
     });
 

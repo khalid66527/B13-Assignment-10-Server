@@ -1,8 +1,8 @@
 const express = require('express');
 const cors = require('cors')
 const app = express()
-const port = 5000
-require('dotenv').config()
+const port = process.env.PORT || 5000;
+require('dotenv').config({ quiet: true })
 
 app.use(cors())
 app.use(express.json())
@@ -789,6 +789,14 @@ async function run() {
 run().catch(console.dir);
 
 
-app.listen(port, () => {
-  console.log(`Example app listening on port ${port}`)
-})
+const server = app.listen(port, () => {
+  console.log(`Server is running on port ${port}`);
+});
+
+server.on('error', (err) => {
+  if (err.code === 'EADDRINUSE') {
+    console.error(`Port ${port} is already in use. Please terminate the process using port ${port} or change the port.`);
+  } else {
+    console.error('Server error:', err);
+  }
+});

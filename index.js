@@ -63,6 +63,7 @@ async function run() {
     const subscriptionCollection = database.collection("subscriptions");
     const artpurchasesCollection = database.collection("purchasestor");
     const usercommentCollection = database.collection("usercomment");
+    const useraddressCollection = database.collection("useraddress");
 
 
     app.get('/api/arts', async (req, res) => {
@@ -613,7 +614,169 @@ async function run() {
         console.error("Error upserting company data:", error);
         res.status(500).send({ error: "Failed to save company profile" });
       }
-    })
+    });
+
+    // ==========================================
+    // USER ADDRESS COLLECTION APIs (CRUD)
+    // ==========================================
+    const escapeRegex = (str) => String(str).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+    const buildAddressFilter = (email, userId) => {
+      const orConditions = [];
+      if (email && String(email).trim()) {
+        const escaped = escapeRegex(String(email).trim());
+        orConditions.push({ userEmail: { $regex: new RegExp(`^${escaped}$`, 'i') } });
+        orConditions.push({ email: { $regex: new RegExp(`^${escaped}$`, 'i') } });
+      }
+      if (userId && String(userId).trim()) {
+        orConditions.push({ userId: String(userId).trim() });
+      }
+      return orConditions.length > 0 ? { $or: orConditions } : {};
+    };
+
+    app.get('/api/useraddress', async (req, res) => {
+      try {
+        const filter = buildAddressFilter(req.query.email, req.query.userId);
+        const addresses = await useraddressCollection.find(filter).sort({ isDefault: -1, _id: -1 }).toArray();
+        res.json(addresses);
+      } catch (error) {
+        console.error("Error fetching user addresses:", error);
+        res.status(500).send({ error: "Failed to fetch addresses" });
+      }
+    });
+
+    app.post('/api/useraddress', async (req, res) => {
+      try {
+        const data = req.body || {};
+        const street = data.street || data.address || data.landmark || "";
+        const fullName = data.fullName || data.name || "";
+        const phone = data.phone || "";
+
+        if (!street || !fullName || !phone) {
+          return res.status(400).send({ error: "Required address fields (fullName, phone, street) are missing" });
+        }
+
+        const userEmail = (data.userEmail || data.email || "").trim();
+        const userId = (data.userId || data.id || "").trim();
+        const emailFilter = buildAddressFilter(userEmail, userId);
+
+        let shouldBeDefault = data.isDefault === true;
+        if (Object.keys(emailFilter).length > 0) {
+          const existingCount = await useraddressCollection.countDocuments(emailFilter);
+          if (existingCount === 0) {
+            shouldBeDefault = true;
+          }
+          if (shouldBeDefault) {
+            await useraddressCollection.updateMany(emailFilter, { $set: { isDefault: false } });
+          }
+        } else {
+          shouldBeDefault = true;
+        }
+
+        const newAddress = {
+          userId: userId,
+          userEmail: userEmail,
+          email: userEmail,
+          fullName: fullName,
+          phone: phone,
+          altPhone: data.altPhone || "",
+          division: data.division || data.state || "Dhaka",
+          district: data.district || data.city || "Dhaka City",
+          city: data.city || data.district || "Dhaka City",
+          state: data.division || data.state || "Dhaka",
+          thana: data.thana || "",
+          zipCode: data.zipCode || "",
+          street: street,
+          apartment: data.apartment || "",
+          landmark: data.landmark || "",
+          deliveryNotes: data.deliveryNotes || "",
+          country: "Bangladesh",
+          label: data.label || "Home",
+          isDefault: shouldBeDefault,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        };
+
+        const result = await useraddressCollection.insertOne(newAddress);
+        res.status(201).json({ success: true, insertedId: result.insertedId, address: { ...newAddress, _id: result.insertedId } });
+      } catch (error) {
+        console.error("Error saving user address:", error);
+        res.status(500).send({ error: "Failed to save address" });
+      }
+    });
+
+    app.put('/api/useraddress/:id', async (req, res) => {
+      try {
+        const id = req.params.id;
+        const data = req.body || {};
+        const userEmail = (data.userEmail || data.email || "").trim();
+        const userId = (data.userId || data.id || "").trim();
+        const emailFilter = buildAddressFilter(userEmail, userId);
+
+        if (data.isDefault === true && Object.keys(emailFilter).length > 0) {
+          await useraddressCollection.updateMany(emailFilter, { $set: { isDefault: false } });
+        }
+
+        const updateDoc = {
+          $set: {
+            userEmail: userEmail,
+            email: userEmail,
+            userId: userId,
+            fullName: data.fullName || data.name || "",
+            phone: data.phone || "",
+            altPhone: data.altPhone || "",
+            division: data.division || data.state || "Dhaka",
+            district: data.district || data.city || "Dhaka City",
+            city: data.city || data.district || "Dhaka City",
+            state: data.division || data.state || "Dhaka",
+            thana: data.thana || "",
+            zipCode: data.zipCode || "",
+            street: data.street || data.address || "",
+            apartment: data.apartment || "",
+            landmark: data.landmark || "",
+            deliveryNotes: data.deliveryNotes || "",
+            country: "Bangladesh",
+            label: data.label || "Home",
+            isDefault: data.isDefault === true,
+            updatedAt: new Date()
+          }
+        };
+
+        const result = await useraddressCollection.updateOne({ _id: new ObjectId(id) }, updateDoc);
+        res.json({ success: true, modifiedCount: result.modifiedCount });
+      } catch (error) {
+        console.error("Error updating user address:", error);
+        res.status(500).send({ error: "Failed to update address" });
+      }
+    });
+
+    app.patch('/api/useraddress/:id/default', async (req, res) => {
+      try {
+        const id = req.params.id;
+        const { userEmail, userId } = req.body || {};
+        const emailFilter = buildAddressFilter(userEmail, userId);
+
+        if (Object.keys(emailFilter).length > 0) {
+          await useraddressCollection.updateMany(emailFilter, { $set: { isDefault: false } });
+        }
+        const result = await useraddressCollection.updateOne({ _id: new ObjectId(id) }, { $set: { isDefault: true, updatedAt: new Date() } });
+        res.json({ success: true, modifiedCount: result.modifiedCount });
+      } catch (error) {
+        console.error("Error setting default address:", error);
+        res.status(500).send({ error: "Failed to set default address" });
+      }
+    });
+
+    app.delete('/api/useraddress/:id', async (req, res) => {
+      try {
+        const id = req.params.id;
+        const result = await useraddressCollection.deleteOne({ _id: new ObjectId(id) });
+        res.json({ success: true, deletedCount: result.deletedCount });
+      } catch (error) {
+        console.error("Error deleting user address:", error);
+        res.status(500).send({ error: "Failed to delete address" });
+      }
+    });
 
 
     // await client.db("admin").command({ ping: 1 });

@@ -68,9 +68,48 @@ async function run() {
 
 
     app.get('/api/arts', async (req, res) => {
-      const result = await artsCollection.find().toArray()
-      res.json(result)
-    })
+      try {
+        const arts = await artsCollection.find().toArray();
+        const comments = await usercommentCollection.find({}).toArray();
+
+        // Calculate ratings per artwork
+        const ratingsMap = {};
+        comments.forEach((c) => {
+          const artId = String(c.artworkId || c.artId || "");
+          if (!artId) return;
+          if (!ratingsMap[artId]) {
+            ratingsMap[artId] = { sum: 0, count: 0 };
+          }
+          const r = Math.min(5, Math.max(1, Number(c.rating) || 5));
+          ratingsMap[artId].sum += r;
+          ratingsMap[artId].count += 1;
+        });
+
+        const enrichedArts = arts.map((art) => {
+          const artId = String(art._id || art.id || "");
+          const rData = ratingsMap[artId];
+          if (rData && rData.count > 0) {
+            return {
+              ...art,
+              rating: Number((rData.sum / rData.count).toFixed(1)),
+              reviewsCount: rData.count,
+              hasReviews: true
+            };
+          }
+          return {
+            ...art,
+            rating: art.rating ? Number(art.rating) : 5.0,
+            reviewsCount: art.reviewsCount ? Number(art.reviewsCount) : 0,
+            hasReviews: false
+          };
+        });
+
+        res.json(enrichedArts);
+      } catch (error) {
+        console.error("Error fetching arts:", error);
+        res.status(500).json({ error: "Failed to fetch artworks" });
+      }
+    });
 
 
 
@@ -122,35 +161,137 @@ async function run() {
 
 
 
+    // GET comments & ratings for an artwork
     app.get("/api/artworks/:id/comments", async (req, res) => {
       try {
         const artworkId = req.params.id;
         const comments = await usercommentCollection
-          .find({ artworkId })
+          .find({
+            $or: [
+              { artworkId: artworkId },
+              { artworkId: String(artworkId) },
+              { artId: artworkId },
+              { artId: String(artworkId) }
+            ]
+          })
           .sort({ createdAt: -1 })
           .toArray();
-        res.json(comments);
+
+        // Calculate statistics
+        const totalReviews = comments.length;
+        let ratingSum = 0;
+        const ratingCounts = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 };
+        const photoReviews = [];
+
+        comments.forEach((c) => {
+          const r = Math.min(5, Math.max(1, Number(c.rating) || 5));
+          ratingSum += r;
+          ratingCounts[r] = (ratingCounts[r] || 0) + 1;
+          if (Array.isArray(c.reviewImages) && c.reviewImages.length > 0) {
+            photoReviews.push(...c.reviewImages);
+          } else if (c.reviewImage) {
+            photoReviews.push(c.reviewImage);
+          }
+        });
+
+        const averageRating = totalReviews > 0 ? Number((ratingSum / totalReviews).toFixed(1)) : 5.0;
+
+        res.json({
+          comments,
+          stats: {
+            totalReviews,
+            averageRating,
+            ratingCounts,
+            photoReviewsCount: photoReviews.length,
+            photoReviews
+          }
+        });
       } catch (error) {
         console.error("Error fetching comments:", error);
         res.status(500).json({ error: "Failed to fetch comments" });
       }
     });
 
+    // Helper route to get all artworks ratings summary for cards
+    app.get("/api/artworks-ratings-summary", async (req, res) => {
+      try {
+        const comments = await usercommentCollection.find({}).toArray();
+        const summary = {};
 
+        comments.forEach((c) => {
+          const artId = c.artworkId || c.artId;
+          if (!artId) return;
+          if (!summary[artId]) {
+            summary[artId] = { count: 0, sum: 0, avg: 5.0 };
+          }
+          const r = Math.min(5, Math.max(1, Number(c.rating) || 5));
+          summary[artId].count += 1;
+          summary[artId].sum += r;
+          summary[artId].avg = Number((summary[artId].sum / summary[artId].count).toFixed(1));
+        });
 
+        res.json(summary);
+      } catch (error) {
+        console.error("Error fetching ratings summary:", error);
+        res.status(500).json({});
+      }
+    });
 
-
+    // Check if user has purchased this artwork
     app.get("/api/artworks/:id/purchased-check", async (req, res) => {
       try {
         const artworkId = req.params.id;
-        const userId = req.query.userId;
+        const userId = req.query.userId ? String(req.query.userId).trim() : null;
+        const userEmail = req.query.email ? String(req.query.email).trim() : null;
 
-        const purchase = await artbuynowstorCollection.findOne({
-          id: artworkId,
-          buynowerId: userId
+        if (!userId && !userEmail) {
+          return res.json({ purchased: false });
+        }
+
+        const idMatches = [artworkId, String(artworkId)];
+        if (ObjectId.isValid(artworkId)) {
+          idMatches.push(new ObjectId(artworkId));
+        }
+
+        const userConditions = [];
+        if (userId) {
+          userConditions.push({ buynowerId: userId });
+          userConditions.push({ userId: userId });
+          userConditions.push({ buyerId: userId });
+        }
+        if (userEmail) {
+          const escaped = escapeRegex(userEmail);
+          userConditions.push({ buynowerEmail: { $regex: new RegExp(`^${escaped}$`, 'i') } });
+          userConditions.push({ userEmail: { $regex: new RegExp(`^${escaped}$`, 'i') } });
+          userConditions.push({ email: { $regex: new RegExp(`^${escaped}$`, 'i') } });
+          userConditions.push({ buyerEmail: { $regex: new RegExp(`^${escaped}$`, 'i') } });
+        }
+
+        const artFilter = {
+          $or: [
+            { id: { $in: idMatches } },
+            { art_id: { $in: idMatches } },
+            { artworkId: { $in: idMatches } },
+            { artId: { $in: idMatches } },
+            { _id: { $in: idMatches } }
+          ]
+        };
+
+        const purchase1 = await artbuynowstorCollection.findOne({
+          ...artFilter,
+          $or: userConditions
         });
 
-        res.json({ purchased: !!purchase });
+        if (purchase1) {
+          return res.json({ purchased: true });
+        }
+
+        const purchase2 = await artpurchasesCollection.findOne({
+          ...artFilter,
+          $or: userConditions
+        });
+
+        res.json({ purchased: !!purchase2 });
       } catch (error) {
         console.error("Error checking purchase status:", error);
         res.status(500).json({ error: "Failed to check purchase status" });
@@ -171,6 +312,27 @@ async function run() {
         if (!result) {
           return res.status(404).send({ error: "Artwork not found" });
         }
+
+        const comments = await usercommentCollection.find({
+          $or: [
+            { artworkId: id },
+            { artworkId: String(id) },
+            { artId: id },
+            { artId: String(id) }
+          ]
+        }).toArray();
+
+        if (comments.length > 0) {
+          const sum = comments.reduce((acc, c) => acc + Math.min(5, Math.max(1, Number(c.rating) || 5)), 0);
+          result.rating = Number((sum / comments.length).toFixed(1));
+          result.reviewsCount = comments.length;
+          result.hasReviews = true;
+        } else {
+          result.rating = result.rating ? Number(result.rating) : 5.0;
+          result.reviewsCount = 0;
+          result.hasReviews = false;
+        }
+
         res.json(result);
       } catch (error) {
         console.error("Error getting art by id:", error);
@@ -297,97 +459,162 @@ async function run() {
 
 
 
-    app.post("/api/artworks/:id/comments", verifyJWT, async (req, res) => {
+    app.post("/api/artworks/:id/comments", async (req, res) => {
       try {
         const artworkId = req.params.id;
-        const { userId, userName, userImage, comment } = req.body;
+        const { userId, userEmail, userName, userImage, comment, rating, reviewImages, recommend } = req.body;
 
-        // Check if user has purchase record for that artwork
-        const purchase = await artbuynowstorCollection.findOne({
-          id: artworkId,
-          buynowerId: userId
-        });
-
-        if (!purchase) {
-          return res.status(403).json({ error: "Only users who have purchased this artwork can leave comments." });
+        if (!comment || !comment.trim()) {
+          return res.status(400).json({ error: "Review comment cannot be empty." });
         }
 
+        const idMatches = [artworkId, String(artworkId)];
+        if (ObjectId.isValid(artworkId)) {
+          idMatches.push(new ObjectId(artworkId));
+        }
+
+        const userConditions = [];
+        if (userId) {
+          userConditions.push({ buynowerId: userId });
+          userConditions.push({ userId: userId });
+          userConditions.push({ buyerId: userId });
+        }
+        if (userEmail) {
+          const escaped = escapeRegex(userEmail);
+          userConditions.push({ buynowerEmail: { $regex: new RegExp(`^${escaped}$`, 'i') } });
+          userConditions.push({ userEmail: { $regex: new RegExp(`^${escaped}$`, 'i') } });
+          userConditions.push({ email: { $regex: new RegExp(`^${escaped}$`, 'i') } });
+          userConditions.push({ buyerEmail: { $regex: new RegExp(`^${escaped}$`, 'i') } });
+        }
+
+        const artFilter = {
+          $or: [
+            { id: { $in: idMatches } },
+            { art_id: { $in: idMatches } },
+            { artworkId: { $in: idMatches } },
+            { artId: { $in: idMatches } },
+            { _id: { $in: idMatches } }
+          ]
+        };
+
+        let purchase = null;
+        if (userConditions.length > 0) {
+          purchase = await artbuynowstorCollection.findOne({
+            ...artFilter,
+            $or: userConditions
+          });
+
+          if (!purchase) {
+            purchase = await artpurchasesCollection.findOne({
+              ...artFilter,
+              $or: userConditions
+            });
+          }
+        }
+
+        if (!purchase) {
+          return res.status(403).json({ error: "Only verified buyers who have purchased this artwork can leave reviews & ratings." });
+        }
+
+        // Validate images array
+        let processedImages = [];
+        if (Array.isArray(reviewImages)) {
+          processedImages = reviewImages.filter((img) => typeof img === "string" && img.trim().length > 0);
+        } else if (typeof reviewImages === "string" && reviewImages.trim()) {
+          processedImages = [reviewImages.trim()];
+        }
+
+        const parsedRating = Math.min(5, Math.max(1, Number(rating) || 5));
+
         const newComment = {
-          artworkId,
-          userId,
-          userName: userName || "Anonymous",
+          artworkId: String(artworkId),
+          artId: String(artworkId),
+          userId: userId || "",
+          userEmail: userEmail || "",
+          userName: userName || "Verified Collector",
           userImage: userImage || "",
-          comment,
-          createdAt: new Date()
+          rating: parsedRating,
+          reviewImages: processedImages,
+          comment: comment.trim(),
+          recommend: recommend !== false,
+          isVerifiedBuyer: true,
+          createdAt: new Date(),
+          updatedAt: new Date()
         };
 
         const result = await usercommentCollection.insertOne(newComment);
-        res.status(201).json(result);
+        res.status(201).json({ success: true, insertedId: result.insertedId, review: newComment });
       } catch (error) {
         console.error("Error creating comment:", error);
-        res.status(500).json({ error: "Failed to store comment" });
+        res.status(500).json({ error: "Failed to store review" });
       }
     });
 
-
-
-
-
-
-
-
-
-
-
-
-
-    app.put("/api/comments/:commentId", verifyJWT, async (req, res) => {
+    app.put("/api/comments/:commentId", async (req, res) => {
       try {
         const commentId = req.params.commentId;
-        const { userId, comment } = req.body;
+        const { userId, userEmail, comment, rating, reviewImages, recommend } = req.body;
 
-        const existing = await usercommentCollection.findOne({ _id: new ObjectId(commentId) });
+        let query = { _id: commentId };
+        if (ObjectId.isValid(commentId)) {
+          query = { $or: [{ _id: commentId }, { _id: new ObjectId(commentId) }] };
+        }
+
+        const existing = await usercommentCollection.findOne(query);
         if (!existing) {
-          return res.status(404).json({ error: "Comment not found" });
-        }
-        if (existing.userId !== userId) {
-          return res.status(403).json({ error: "Unauthorized to edit this comment" });
+          return res.status(404).json({ error: "Review not found" });
         }
 
-        const result = await usercommentCollection.updateOne(
-          { _id: new ObjectId(commentId) },
-          { $set: { comment, updatedAt: new Date() } }
-        );
-        res.json(result);
+        if (userId && existing.userId && existing.userId !== userId && userEmail && existing.userEmail !== userEmail) {
+          return res.status(403).json({ error: "Unauthorized to edit this review" });
+        }
+
+        const updateDoc = {
+          updatedAt: new Date()
+        };
+
+        if (comment !== undefined) updateDoc.comment = String(comment).trim();
+        if (rating !== undefined) updateDoc.rating = Math.min(5, Math.max(1, Number(rating) || 5));
+        if (recommend !== undefined) updateDoc.recommend = Boolean(recommend);
+        if (reviewImages !== undefined) {
+          updateDoc.reviewImages = Array.isArray(reviewImages)
+            ? reviewImages.filter((img) => typeof img === "string" && img.trim().length > 0)
+            : [];
+        }
+
+        const result = await usercommentCollection.updateOne(query, { $set: updateDoc });
+        res.json({ success: true, modifiedCount: result.modifiedCount });
       } catch (error) {
         console.error("Error updating comment:", error);
-        res.status(500).json({ error: "Failed to update comment" });
+        res.status(500).json({ error: "Failed to update review" });
       }
     });
 
-
-
-
-
-
-    app.delete("/api/comments/:commentId", verifyJWT, async (req, res) => {
+    app.delete("/api/comments/:commentId", async (req, res) => {
       try {
         const commentId = req.params.commentId;
-        const userId = req.query.userId || req.body.userId;
+        const userId = req.query.userId || req.body?.userId;
+        const userEmail = req.query.email || req.body?.email;
 
-        const existing = await usercommentCollection.findOne({ _id: new ObjectId(commentId) });
+        let query = { _id: commentId };
+        if (ObjectId.isValid(commentId)) {
+          query = { $or: [{ _id: commentId }, { _id: new ObjectId(commentId) }] };
+        }
+
+        const existing = await usercommentCollection.findOne(query);
         if (!existing) {
-          return res.status(404).json({ error: "Comment not found" });
-        }
-        if (existing.userId !== userId) {
-          return res.status(403).json({ error: "Unauthorized to delete this comment" });
+          return res.status(404).json({ error: "Review not found" });
         }
 
-        const result = await usercommentCollection.deleteOne({ _id: new ObjectId(commentId) });
-        res.json(result);
+        if (userId && existing.userId && existing.userId !== userId && userEmail && existing.userEmail !== userEmail) {
+          return res.status(403).json({ error: "Unauthorized to delete this review" });
+        }
+
+        const result = await usercommentCollection.deleteOne(query);
+        res.json({ success: true, deletedCount: result.deletedCount });
       } catch (error) {
         console.error("Error deleting comment:", error);
-        res.status(500).json({ error: "Failed to delete comment" });
+        res.status(500).json({ error: "Failed to delete review" });
       }
     });
 

@@ -87,6 +87,23 @@ async function run() {
       }
     });
 
+    app.get("/api/users/by-email", async (req, res) => {
+      try {
+        const email = req.query.email;
+        if (!email) {
+          return res.status(400).send({ error: "Email query param required" });
+        }
+        const user = await usersCollection.findOne({ email });
+        if (!user) {
+          return res.status(404).send({ error: "User not found" });
+        }
+        res.json(user);
+      } catch (error) {
+        console.error("Error fetching user by email:", error);
+        res.status(500).send({ error: "Failed to fetch user" });
+      }
+    });
+
 
 
 
@@ -176,43 +193,64 @@ async function run() {
 
 
     app.get('/api/plans', async (req, res) => {
-      const query = {}
-      if (req.query.plan_id) {
-        query.id = req.query.plan_id
-      }
-      const plan = await plansCollection.findOne(query)
-      res.send(plan)
-    })
-
-
-
-
-
-    app.post('/api/subscriptions', verifyJWT, async (req, res) => {
-      const data = req.body;
-      const subInfo = {
-        ...data,
-        createdAt: new Date()
-      }
-      const result = await subscriptionCollection.insertOne(subInfo)
-
-      const filter = { email: data.email }
-      const updateDocument = {
-        $set: {
-          plan: data.planId
+      try {
+        const planId = req.query.plan_id;
+        let query = {};
+        if (planId) {
+          query = { id: { $regex: new RegExp(`^${planId}$`, 'i') } };
         }
+        let plan = await plansCollection.findOne(query);
+
+        if (!plan && planId) {
+          const pId = String(planId).toLowerCase();
+          if (pId.includes('premium')) {
+            plan = { name: 'Premium', id: 'buynower_Premium', maxPurchaseMoth: 999999, price: 19.99 };
+          } else if (pId.includes('pro')) {
+            plan = { name: 'Pro', id: 'buynower_Pro', maxPurchaseMoth: 9, price: 9.99 };
+          } else {
+            plan = { name: 'Free', id: 'buynower_free', maxPurchaseMoth: 3, price: 0 };
+          }
+        }
+        res.send(plan);
+      } catch (error) {
+        console.error("Error fetching plan:", error);
+        res.status(500).send({ error: "Failed to fetch plan" });
       }
-      const updateResult = await usersCollection.updateOne(filter, updateDocument)
-      res.send(updateResult)
+    });
 
+    app.post('/api/subscriptions', async (req, res) => {
+      try {
+        const data = req.body;
+        if (!data.email || !data.planId) {
+          return res.status(400).send({ error: "Missing email or planId" });
+        }
+        const subInfo = {
+          ...data,
+          createdAt: new Date()
+        };
+        const result = await subscriptionCollection.insertOne(subInfo);
 
-    })
-
-
+        const filter = { email: { $regex: new RegExp(`^${data.email.trim()}$`, 'i') } };
+        const updateDocument = {
+          $set: {
+            plan: data.planId
+          }
+        };
+        const updateResult = await usersCollection.updateMany(filter, updateDocument);
+        res.send({ success: true, result, updateResult });
+      } catch (err) {
+        console.error("Error creating subscription:", err);
+        res.status(500).send({ error: err.message });
+      }
+    });
 
     app.get('/api/subscriptions', async (req, res) => {
       try {
-        const result = await subscriptionCollection.find().toArray();
+        const query = {};
+        if (req.query.email) {
+          query.email = { $regex: new RegExp(`^${req.query.email.trim()}$`, 'i') };
+        }
+        const result = await subscriptionCollection.find(query).sort({ _id: -1 }).toArray();
         res.json(result);
       } catch (error) {
         console.error("Error fetching subscriptions:", error);
